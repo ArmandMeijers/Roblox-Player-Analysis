@@ -1,65 +1,135 @@
 """
 Author: Armand Meijers
 Date: 08/10/2026
-Description: Functions for cleaning raw Roblox CSV data.
+Description: Functions for cleaning and handling raw CSV data.
 """
 
-import csv
+#imnports
+import pandas as pd
 from pathlib import Path
 
-import pandas as pd
+#HELPER FUNCTIONS
+def csv_loading_helper(data_path: str) -> pd.DataFrame | None:
+    """
+    A helper function to safely load a CSV file and convert it into a pandas dataframe
 
-# These columns describe records; all other supported columns are numerical.
-TEXT_COLUMNS = {"Breakdown", "Source", "Series", "Revenue Source"}
+    Args:
+        data_path (str): Filepath of the csv file you want to turn into a dataframe
 
-
-def _load_csv(data_path: str | Path) -> pd.DataFrame:
-    """Read an export, including files with metadata above the table."""
+    Returns:
+        pd.DataFrame | None: Returns the cleaned DataFrame  and if a error occures returns None
+    """    
+    
+    #Error check to ensure inputed file has the correct format and extention
     path = Path(data_path)
-    metadata_date = None
+    
+    if not path.is_file():
+        print(f"[ERROR]: File not found: {path}")
+        return None
+    
+    if path.suffix.lower() != ".csv":
+        print("[ERROR]: FILE IS NOT .CSV")
+        return None
 
-    with path.open(encoding="utf-8-sig", newline="") as file:
-        for row_number, row in enumerate(csv.reader(file)):
-            if not row:
-                continue
-            row = [cell.strip() for cell in row]
-            if row[0] == "Date" and len(row) == 2:
-                metadata_date = row[1]
-            if row[0] in TEXT_COLUMNS:
-                header_row = row_number
-                break
-        else:
-            raise ValueError(f"No supported Roblox CSV header found in {path.name}")
+    #Reads in your path and converts csv fiel to a pd DataFrame
+    df = pd.read_csv(data_path)
+    
+    #returns loaded dataframe that passed safety check
+    return df
 
-    df = pd.read_csv(path, skiprows=header_row, encoding="utf-8-sig")
-    df.columns = df.columns.str.strip()
-    if metadata_date is not None and "Date" not in df.columns:
-        df["Date"] = metadata_date
+def data_cleaning_dated(data_path: str) -> pd.DataFrame | None:
+    """
+    Cleans a dated csv file that falls under the generic format
+
+    Args:
+        data_path (str): file path of the dated raw CSV file
+
+    Returns:
+        pd.DataFrame | None: a pandas DataFrame containing your cleaned datafrme
+    """    
+    
+    #help loads csv file safely and converts to pd Dataframe
+    df = csv_loading_helper(data_path)
+    if df is None:
+        return None
+
+    #Standardise column names to lowercase and replace spaces with underscores
+    df.columns = (
+        df.columns
+        .str.lower()
+        .str.strip()
+        .str.replace(r"\s+", "_", regex=True)
+    )
+
+    #removes duplicate rows
+    df = df.drop_duplicates()
+    
+    #Cleaning function for dated csv files (checks if it has a date column)
+    if "date" not in df.columns:
+        print(f"[ERROR]: Missing date column: {data_path}")
+        return None
+
+    #Reformats dates into a more readable format and sorts them
+    if "date" in df.columns:
+        df["date"] = pd.to_datetime(df["date"], utc=True)
+        df = df.sort_values("date")
+        df["date"] = df["date"].dt.strftime("%Y-%m-%d")
+
+    #Cleans retention column only when the column exists
+    if "day_7_retention" in df.columns:
+        df["day_7_retention"] = pd.to_numeric(
+            df["day_7_retention"],
+            errors="raise"
+        ).fillna(0)
+
+    #removes all rows, with the entry "Benchmark (Top 10,000 experience)" from breakdown column
+    if "breakdown" in df.columns:
+        df = df.loc[
+            df["breakdown"] != "Benchmark (Top 10,000 experience)"
+        ]
+    
+    #fills all numeric columns that have "NaN" or "None" with 0 (where appropriate)
+    numeric_columns = df.select_dtypes(include="number").columns
+    df[numeric_columns] = df[numeric_columns].fillna(0)
+
+    #returns cleaned pd dataframe
     return df
 
 
-def data_cleaning(data_path: str | Path) -> pd.DataFrame:
-    """Return a cleaned table without modifying the original CSV.
-
-    Dates become YYYY-MM-DD strings. Missing numerical values become zero
-    by project convention, including unavailable retention measurements.
-    Invalid dates or non-numerical metric text raise an error for review.
-    Labels, genuine zeros, breakdowns, and duplicate rows are preserved.
+def data_cleaning_misc(data_path: str) -> pd.DataFrame| None:
     """
-    df = _load_csv(data_path)
+    Cleans a unique csv files that doesnt fall under a common format
 
-    for column in df.columns:
-        if column in TEXT_COLUMNS:
-            df[column] = df[column].astype("string").str.strip()
-        elif column == "Date":
-            dates = pd.to_datetime(df[column], utc=True, errors="raise")
-            if dates.isna().any():
-                raise ValueError(f"Missing dates in {Path(data_path).name}")
-            df[column] = dates.dt.strftime("%Y-%m-%d")
-        else:
-            df[column] = pd.to_numeric(df[column], errors="raise").fillna(0)
+    Args:
+        data_path (str): filepath of the misc csv file you want to clean
 
-    if "Date" in df.columns:
-        df = df.sort_values("Date", kind="stable")
-
-    return df.reset_index(drop=True)
+    Returns:
+        pd.DataFrame | None: a pandas DataFrame containing your cleaned datafrme
+    """ 
+    
+    #help loads csv file safely and converts to pd Dataframe
+    df = csv_loading_helper(data_path)
+    if df is None:
+        return None
+    
+    #Standardise column names to lowercase and replace spaces with underscores
+    df.columns = (
+        df.columns
+        .str.lower()
+        .str.strip()
+        .str.replace(r"\s+", "_", regex=True)
+    )
+    
+    #removes duplicate rows
+    df = df.drop_duplicates()
+    
+    #fills all numeric columns that have "NaN" or "None" with 0 (where appropriate)
+    numeric_columns = df.select_dtypes(include="number").columns
+    df[numeric_columns] = df[numeric_columns].fillna(0)
+    
+    #removes breakdown column if it exisits for misc 
+    if "breakdown" in df.columns:
+        df = df.drop(columns=["breakdown"])
+    
+    #returns cleaned pandas dataframe
+    return df
