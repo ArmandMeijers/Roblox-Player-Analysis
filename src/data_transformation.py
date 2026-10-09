@@ -1,12 +1,13 @@
 """
 Author: Armand Meijers
-Date: 08/10/2026
+Date: 09/10/2026
 Description: Functions for cleaning and handling raw CSV data.
 """
 
 #imnports
 import pandas as pd
 from pathlib import Path
+
 
 #HELPER FUNCTIONS
 def csv_loading_helper(data_path: str) -> pd.DataFrame | None:
@@ -36,6 +37,7 @@ def csv_loading_helper(data_path: str) -> pd.DataFrame | None:
     
     #returns loaded dataframe that passed safety check
     return df
+
 
 def data_cleaning_dated(data_path: str) -> pd.DataFrame | None:
     """
@@ -87,6 +89,9 @@ def data_cleaning_dated(data_path: str) -> pd.DataFrame | None:
         df = df.loc[
             df["breakdown"] != "Benchmark (Top 10,000 experience)"
         ]
+        
+    if "breakdown" in df.columns:
+        df = df.drop(columns=["breakdown"])
     
     #fills all numeric columns that have "NaN" or "None" with 0 (where appropriate)
     numeric_columns = df.select_dtypes(include="number").columns
@@ -133,3 +138,75 @@ def data_cleaning_misc(data_path: str) -> pd.DataFrame| None:
     
     #returns cleaned pandas dataframe
     return df
+
+
+def merging_files(file_list: list[pd.DataFrame]) -> pd.DataFrame | None:
+    """
+    Merges related pd dataframe sructures together into a singular pd dataframe
+
+    Args:
+        file_list (list[pd.DataFrame]): List containing a set of pd dataframe variables
+
+    Returns:
+        pd.DataFrame | None: Returns merged pd dataframe of all files in list
+    """
+    
+    #error check to see if there are elements in the list
+    if not file_list:
+        print("[ERROR]: No DataFrames to merge")
+        return None
+
+    #copies first dataframe element in list
+    merged_df = file_list[0].copy()
+
+    #merges later dataframe elements to initial dataframe
+    for df in file_list[1:]:
+        merged_df = merged_df.merge(
+            df,
+            on="date",
+            how="outer",
+            validate="one_to_one"
+        )
+
+    #fills all blanks and NaN values with 0 where appropriate
+    numeric_columns = merged_df.select_dtypes(include="number").columns
+    merged_df[numeric_columns] = merged_df[numeric_columns].fillna(0)
+
+    #returns merged date frame and is sorted by date
+    return merged_df.sort_values("date")
+
+
+def pivot_dataframe(df: pd.DataFrame, source_column: str, value_column: str ) -> pd.DataFrame:
+    """
+    pivots a dataframe
+
+    Args:
+        df (pd.DataFrame): dataframe you want to pivot
+        source_column (str): name of the column you want to pivot
+        value_column (str): name of the coulumn which holds your values which you pivot
+
+    Returns:
+        pd.DataFrame: returns a pivoted dataframe
+    """    
+    
+    #pivots the dataframe to desired spesifications
+    pivoted_df = df.pivot(
+        index="date",
+        columns=source_column,
+        values=value_column
+    ).reset_index()
+
+    #nomalizes all new pivoted columns
+    pivoted_df.columns = (
+        pivoted_df.columns
+        .str.lower()
+        .str.strip()
+        .str.replace(r"\s+", "_", regex=True)
+    )
+
+    #fills all blanks and NaN cells with 0 (where appropriate)
+    numeric_columns = pivoted_df.select_dtypes(include="number").columns
+    pivoted_df[numeric_columns] = pivoted_df[numeric_columns].fillna(0)
+
+    #returns pivoted dataframe sorted by date
+    return pivoted_df.sort_values("date")

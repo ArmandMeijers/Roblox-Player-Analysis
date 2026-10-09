@@ -1,7 +1,7 @@
 '''
 Author: Armand Meijers
 Date: 08/10/2026
-Description: main file that excecutes the pipeline
+Description: main file that executes the pipeliens code
 '''
 
 
